@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['target_object']
+
+roboflow:
+  workspace: krish-s-workspace-n63ml
+  project: stonefish-project
+  version: 1
+  license: Private
+  url: https://app.roboflow.com/krish-s-workspace-n63ml/stonefish-project/1

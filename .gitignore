@@ -1,0 +1,11 @@
+build/
+install/
+log/
+logs/
+__pycache__/
+*.pyc
+yolo_env/
+cadenv/
+*.step
+tests/results/**/*.png
+tests/results/**/telemetry.csv
