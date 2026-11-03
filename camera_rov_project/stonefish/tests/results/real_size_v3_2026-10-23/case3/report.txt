@@ -1,0 +1,47 @@
+===== CASE 3  (/home/krish/Documents/Development/kyushu_project/camera_rov_project/stonefish/tests/results/real_size_v3_2026-10-23/case3) =====
+samples=38060  sim time 9.7 -> 85.8 s
+
+State timeline:
+  t=   9.68  YAW_SETTLE
+  t=   9.92  VERTICAL_ALIGN
+  t=  21.04  VERIFY_CENTER
+  t=  21.43  APPROACH
+  t=  48.25  TARGET_REACHED
+  t=  49.71  BACK_OFF
+  t=  58.74  SURFACING
+  t=  80.96  SURFACED
+
+Final state: SURFACED   aborted=False
+Max |surge speed| = 0.096 m/s   max |roll| = 0.1 deg   max |pitch| = 2.4 deg
+Max |thrust cmd|: surge 0.12  yaw 0.02  heave 0.40
+
+Depth used by the controller: CAMERA estimate; error vs truth mean -0.095 m, max |error| 0.317 m, final -0.027 m
+
+Min hull-to-target clearance = 0.068 m (t=48.6, TARGET_REACHED)
+Max speed while within 0.23 m of the target = 0.040 m/s
+
+At TARGET_REACHED (end of hold):
+  true front gap      = 0.076 m   (estimated 0.056 m)
+  hull clearance      = 0.076 m
+  lateral offset      = +0.002 m   (camera axis vs target centre)
+  vertical offset     = -0.004 m   (+ = target centre deeper)
+  image error         = e_x +1 px, e_y +4 px
+  speed               = -0.007 m/s
+
+Range estimate error during approach: mean -0.028 m, max |err| 0.094 m
+
+Checks:
+  [PASS] stays upright (|roll|,|pitch| < 10 deg)  0.1 / 2.4 deg
+  [PASS] speed never above 0.145 m/s  0.096 m/s
+  [PASS] ends SURFACED  SURFACED
+  [PASS] floaters break the surface at the end  0.006 m above
+  [PASS] stays at the surface (depth spread < 0.023 m)  0.21-0.22 m
+  [PASS] NO contact with target (clearance > 0.012 m)  0.068 m
+  [PASS] slow near target (< 0.048 m/s within 0.23 m)  0.040 m/s
+  [PASS] reached the target  TARGET_REACHED seen
+  [PASS] not aborted  
+  [PASS] stops close to target (true gap 0.012-0.094 m)  0.076 m
+  [PASS] centred horizontally (|lateral| < 0.023 m)  +0.002 m
+  [PASS] centred vertically (|vertical| < 0.047 m)  -0.004 m
+
+RESULT CASE 3: PASS

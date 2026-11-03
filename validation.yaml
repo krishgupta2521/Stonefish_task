@@ -1,0 +1,7 @@
+path: /home/krish/Documents/buoy_dataset_real_world
+
+train: valid/images
+val: valid/images
+
+names:
+  0: buoy

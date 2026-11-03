@@ -1,0 +1,25 @@
+===== CASE 1  (/home/krish/Documents/Development/kyushu_project/camera_rov_project/stonefish/tests/results/real_size_v3_2026-10-23/novisiondepth) =====
+samples=95161  sim time 9.7 -> 200.0 s
+
+State timeline:
+  t=   9.68  YAW_SETTLE
+  t=   9.92  VERTICAL_ALIGN
+  t=  10.17  SURFACING
+
+Final state: SURFACING   aborted=True
+Max |surge speed| = 0.013 m/s   max |roll| = 0.1 deg   max |pitch| = 1.2 deg
+Max |thrust cmd|: surge 0.05  yaw 0.02  heave 0.08
+
+Depth used by the controller: CAMERA estimate; error vs truth mean -0.048 m, max |error| 0.176 m, final -0.004 m
+
+Depth-estimate fault run: max horizontal drift = 1.97 m
+
+Checks:
+  [PASS] stays upright (|roll|,|pitch| < 10 deg)  0.1 / 1.2 deg
+  [PASS] speed never above 0.145 m/s  0.013 m/s
+  [PASS] floaters break the surface at the end  0.006 m above
+  [PASS] vertical thrust only lifts after the abort (no depth loop)  
+  [PASS] did not approach without a depth estimate  
+  [PASS] aborted  aborted=True
+
+RESULT CASE 1: PASS

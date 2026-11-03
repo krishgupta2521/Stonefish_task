@@ -21,6 +21,7 @@ int main(int argc, char* argv[])
 
     // =====================================================
     // Test case: "./Task2Baseline 3" or "./Task2Baseline --case 3"
+    // ROV mode (piloted): "./Task2Baseline rov" (case 8)
     // (0 = use $TASK2_CASE, else the default case)
     // =====================================================
 
@@ -28,8 +29,13 @@ int main(int argc, char* argv[])
     const std::vector<std::string> args = rclcpp::remove_ros_arguments(argc, argv);
     for (size_t i = 1; i < args.size(); ++i)
     {
-        if (args[i] == "--case" && i + 1 < args.size())
-            scenarioCase = std::atoi(args[++i].c_str());
+        if (args[i] == "rov" || args[i] == "--rov")
+            scenarioCase = 8;
+        else if (args[i] == "--case" && i + 1 < args.size())
+        {
+            ++i;
+            scenarioCase = (args[i] == "rov") ? 8 : std::atoi(args[i].c_str());
+        }
         else if (!args[i].empty() && std::isdigit(static_cast<unsigned char>(args[i][0])))
             scenarioCase = std::atoi(args[i].c_str());
     }

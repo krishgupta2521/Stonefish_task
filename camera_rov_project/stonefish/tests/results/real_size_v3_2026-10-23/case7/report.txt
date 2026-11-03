@@ -1,0 +1,27 @@
+===== CASE 7  (/home/krish/Documents/Development/kyushu_project/camera_rov_project/stonefish/tests/results/real_size_v3_2026-10-23/case7) =====
+samples=40987  sim time 9.7 -> 91.7 s
+
+State timeline:
+  t=   9.68  TARGET_LOST_HOLD
+  t=  10.65  SEARCH
+  t=  71.29  SURFACING
+  t=  86.81  SURFACED
+
+Final state: SURFACED   aborted=True
+Max |surge speed| = 0.003 m/s   max |roll| = 0.5 deg   max |pitch| = 1.5 deg
+Max |thrust cmd|: surge 0.00  yaw 0.10  heave 0.40
+
+Depth used by the controller: CAMERA estimate; error vs truth mean -0.038 m, max |error| 0.235 m, final -0.027 m
+
+Search turned 559 deg
+
+Checks:
+  [PASS] stays upright (|roll|,|pitch| < 10 deg)  0.5 / 1.5 deg
+  [PASS] speed never above 0.145 m/s  0.003 m/s
+  [PASS] ends SURFACED  SURFACED
+  [PASS] floaters break the surface at the end  0.006 m above
+  [PASS] stays at the surface (depth spread < 0.023 m)  0.21-0.22 m
+  [PASS] searched a full turn  559 deg
+  [PASS] aborted safely (no false target)  aborted=True
+
+RESULT CASE 7: PASS

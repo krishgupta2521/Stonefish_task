@@ -19,6 +19,9 @@
 #include <SDL2/SDL.h>
 
 #include <array>
+#include <deque>
+#include <limits>
+#include <vector>
 #include <chrono>
 
 class Task2Manager : public sf::SimulationManager
@@ -54,7 +57,8 @@ private:
         BACK_OFF = 10,
         SURFACING = 11,
         SURFACED = 12,
-        RETREAT = 13
+        RETREAT = 13,
+        ROV_MANUAL = 14      // ROV mode (piloted): telemetry only
     };
 
     // Publishing
@@ -65,9 +69,15 @@ private:
     void ObjectPositionCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
     void TargetDetectionCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg);
     void TargetBoxCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+    void VisionFlowCallback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
 
     // Simulation helpers
     void UpdateTrackedObject();
+    void PlaceTargetInView();   // ROV: sim target at the real camera's image position
+    void MoveTarget(const sf::Transform& pose);   // every buoy part
+    void SetupChaseView();                        // 3D view from behind the robot
+    void UpdateDatasetTarget();                   // TASK2_DATASET: random buoy placement
+    void PublishDatasetLabel(const builtin_interfaces::msg::Time& stamp);
     void PrintOdometry();
     void CheckAutotestExit();
 
@@ -82,25 +92,65 @@ private:
                                 double depthHold);
     void ProcessDetection(double yaw, double depth, double pitch);
     void UpdateCameraAxisCheck();
-    double SurgeSpeedControl(double speedTarget, double bodyVx, double dt);
+    double SurgeSpeedControl(double speedTarget, double bodyVx, double dt,
+                             double accel = 0.0, double decel = 0.0);   // 0 = mission ramps
     void BuildAllocation();
     void ApplyAxisCommands(const double cmd[5]);   // raw, no sign correction
+    // Depth observer (Kalman filter on depth, vertical speed, acceleration bias)
+    void ObserverPredict(double dt, double bodyVx);
+    bool ObserverUpdate(int index, double measurement, double variance, bool gate = true);
+    void UpdateDepthObserver(double dt, double pitchRate, double bodyVx, double depthTruth,
+                             double heaveVelTruth);
+    void AppendThrustTelemetry(std::vector<double>& data, double depth, double heaveVel);
+    void UpdateRovControl(const Uint8* keys);
+    bool ObserveTargetHeight(double targetDz, double lever);
+    // Navigation without IMU / DVL: heading and forward-speed observers
+    void UpdateNavigation(double dt);
+    void ObserveTargetRange(double range);
 
     // Scenario
     int activeCase = 1;
+    bool rovMode = false;                // case 8: piloted, no autonomy
+
+    // ROV mode
+    bool rovHeadingHold = false;
+    double rovHeadingRef = 0.0;
+    double rovFrontGap = -1.0;           // from the bulb's box size, -1 = unknown
+    double rovLastGuardPrint = -1e9;
+    double rovLastGapBoxTime = -1.0;
+    int rovGapFartherCount = 0;
+    double rovViewCorrX = 0.0;           // view matching: correction of the target placement
+    double rovViewCorrY = 0.0;
+    bool rovTargetDepthLimited = false;
+    bool rovTargetFrozen = true;         // target fixed in the world (real object still)
+    double rovFrozenX = 1e9, rovFrozenY = 1e9;   // real image position when frozen (none yet)
+    double rovViewOffsetX = 0.0, rovViewOffsetY = 0.0;   // sim view position - real, while moving
+    double rovTargetDist = -1.0;         // target distance along the camera axis while it moves (-1 = measure)
+    double rovStillRefX = 0.0, rovStillRefY = 0.0, rovStillTime = 0.0;
+    bool rovDepthHold = false;
+    double rovHeaveTrim = 0.0;           // learned hover thrust (camera only, held while turning)
+    double rovDepthRef = 0.0;
 
     // ROS
     rclcpp::Node::SharedPtr rosNode;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odomPublisher;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr imagePublisher;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr datasetLabelPublisher;
+    bool datasetMode = false;
+    double datasetMoveTime = -1e9;
+    std::vector<std::array<double, 3>> bulbVertices;   // bulb mesh (scaled), for the labels
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr controlDebugPublisher;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr objectPositionSubscriber;
     rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr targetDetectionSubscriber;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr targetBoxSubscriber;
+    rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr visionFlowSubscriber;
 
     // Simulation entities
     sf::Odometry* odometry = nullptr;
-    sf::Obstacle* trackedObject = nullptr;
+    sf::Obstacle* trackedObject = nullptr;           // the buoy's yellow bulb
+    sf::SolidEntity* robotHull = nullptr;            // the robot's base link (3D view follows it)
+    bool chaseViewSet = false;
+    std::vector<sf::Obstacle*> targetParts;          // all buoy parts (moved together)
 
     // Real-camera object (case 6)
     double objectPixelX = 320.0;
@@ -182,6 +232,7 @@ private:
     bool brakeGuardActive = false;
     double searchTime = 0.0;
     double searchTurned = 0.0;
+    double searchTurnedModel = 0.0;      // the same turn from the thrust model (camera only)
     double prevSearchYaw = 0.0;
     double searchDirection = 1.0;
 
@@ -215,6 +266,77 @@ private:
     double surgeCommand = 0.0;
 
     bool missionAborted = false;
+
+    // ---- Depth from the camera (no depth sensor) ----
+    bool useVisionDepth = true;          // false: simulator truth ($TASK2_DEPTH_SOURCE=sensor)
+    double visionFlowB = 0.0;            // vertical image shift [px/s] (visual_heave_estimator.py)
+    double visionFlowFeatures = 0.0;
+    double visionFlowTime = -1.0;        // sim time of the latest flow message
+    bool visionFlowNew = false;
+    double visionVz = 0.0;               // vertical speed estimate [m/s], + = down
+    double visionDepth = 0.0;            // integrated depth estimate [m]
+    bool visionDepthOk = false;          // flow arriving: depth estimate is being updated
+    double surfaceStillTime = 0.0;       // SURFACING: time the robot has stopped rising
+    bool surfacePassive = false;         // SURFACING: vertical thrusters off, settling check
+    bool verticalFault = false;          // vertical control not trusted: vertical thrusters off
+    double kfX[3] = {0.0, 0.0, 0.0};     // observer state: depth [m], vz [m/s], accel. bias [m/s^2]
+    double kfP[3][3] = {};
+    double heaveForceCmd = 0.0;          // commanded vertical thrust through the T200 curve [N], lagged
+    double targetAnchor = 0.0;           // target depth in the observer's frame [m]
+    bool targetAnchorValid = false;
+    int anchorRejects = 0;
+    double lastTargetUpdateTime = -1.0;  // sim time of the last accepted target height measurement
+    double flowVz = 0.0;                 // vertical speed from the camera flow alone [m/s]
+    double flowVzSlow = 0.0;             // the same, averaged over the rocking period
+    double heaveForcePerCmd = 0.0;       // vertical thrust [N] for a heave command of 1
+    double hoverTrimPrior = 0.0;         // heave command that cancels the buoyancy (model)
+    double surfaceStartDepth = 0.0, surfaceModelVz = 0.0, surfaceModelRise = 0.0;   // ascent, thrust model only
+    double heaveTrim = 0.0;              // vertical thrust that holds the robot level (learned)
+    double depthRefSlewed = 0.0;         // depth reference after the vertical speed limit
+
+    // ---- Navigation without IMU / DVL (camera + thrust models) ----
+    struct Kf3
+    {
+        double x[3] = {0.0, 0.0, 0.0};   // position-like, rate, acceleration bias
+        double P[3][3] = {{0.01, 0, 0}, {0, 0.0025, 0}, {0, 0, 1e-4}};
+        void Predict(double dt, double accel, double dAccelDv, double qAccel, double qBias);
+        bool Update(int i, double z, double var, bool gate);
+    };
+    bool useSensorNav = false;           // true: simulator IMU/odometry ($TASK2_NAV_SOURCE=sensor)
+    Kf3 yawKf;                           // [heading, yaw rate, bias]
+    Kf3 surgeKf;                         // [distance travelled, forward speed, bias]
+    double surgeForceCmd = 0.0, yawTorqueCmd = 0.0;   // commanded, through the thrust curves, lagged
+    double swayForceCmd = 0.0;
+    double swayVelModel = 0.0;           // sideways speed from the thrust model [m/s]
+    double flowVzRaw = std::numeric_limits<double>::quiet_NaN();   // last camera vertical speed (telemetry)
+    double surgeVelModel = 0.0;          // forward speed from the thrust model alone [m/s]
+    double yawRateModel = 0.0;           // turn rate from the thrust model alone [rad/s]
+    double navX = 0.0, navY = 0.0;       // dead-reckoned position (observer frame)
+    double navYaw = 0.0, navYawRate = 0.0, navVx = 0.0;
+    double navRoll = 0.0, navPitch = 0.0, navRollRate = 0.0, navPitchRate = 0.0;
+    double visionFlowC = 0.0, visionFlowD = 0.0;   // horizontal shift [px/s], divergence [1/s]
+    bool visionFlowHorizNew = false;
+    double flowYawRate = 0.0, flowSurgeSign = 0.0;   // camera-only measurements (calibration)
+    double rangeAnchor = 0.0;
+    bool rangeAnchorValid = false;
+    int rangeAnchorRejects = 0;
+    double lastRangeUpdateTime = -1.0;
+    bool rangeHoldValid = false;         // stationary hold on the camera range (no DVL)
+    double rangeGoalGap = -1.0;          // BACK_OFF / RETREAT goal on the camera range
+    std::deque<std::pair<double, double>> rangeHistory;   // (sim time, camera range)
+    double rangeRateSpeed = 0.0, rangeRateTime = -1.0;   // camera-measured closing speed
+    double rangeHoldGap = 0.0;
+
+    // ---- Timing for the system log (wall clock, epoch seconds) ----
+    double controlWallTime = 0.0;        // start of the latest control step
+    double thrusterWallTime = 0.0;       // thruster setpoints applied
+    double detectionRxWallTime = 0.0;    // /stonefish/target/detection received
+    double detectionImageStamp = 0.0;    // its image header stamp (frame identity)
+    double objectRxWallTime = 0.0;       // /object/position (real camera) received
+    double objectImageStamp = 0.0;
+    double targetMovedWallTime = 0.0;    // real-camera detection applied to the sim target
+    double targetMovedImageStamp = 0.0;
+    double pilotInput[4] = {0.0, 0.0, 0.0, 0.0};   // ROV: forward, sideways, vertical, turn
 
     // ---- Metrics for the evaluation section ----
     double acquisitionStartTime = -1.0;

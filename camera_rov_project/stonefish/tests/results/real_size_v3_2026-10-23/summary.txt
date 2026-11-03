@@ -1,0 +1,54 @@
+== case1: RESULT CASE 1: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.064 m, max |error| 0.086 m, final -0.027 m
+   Min hull-to-target clearance = 0.073 m (t=40.3, TARGET_REACHED)
+     true front gap      = 0.081 m   (estimated 0.061 m)
+     lateral offset      = +0.001 m   (camera axis vs target centre)
+     vertical offset     = -0.005 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case2: RESULT CASE 2: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.039 m, max |error| 0.060 m, final -0.027 m
+   Min hull-to-target clearance = 0.068 m (t=41.3, TARGET_REACHED)
+     true front gap      = 0.077 m   (estimated 0.060 m)
+     lateral offset      = +0.002 m   (camera axis vs target centre)
+     vertical offset     = -0.004 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case3: RESULT CASE 3: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.095 m, max |error| 0.317 m, final -0.027 m
+   Min hull-to-target clearance = 0.068 m (t=48.6, TARGET_REACHED)
+     true front gap      = 0.076 m   (estimated 0.056 m)
+     lateral offset      = +0.002 m   (camera axis vs target centre)
+     vertical offset     = -0.004 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case4: RESULT CASE 4: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean +0.013 m, max |error| 0.082 m, final -0.027 m
+   Min hull-to-target clearance = 0.071 m (t=62.6, TARGET_REACHED)
+     true front gap      = 0.080 m   (estimated 0.062 m)
+     lateral offset      = +0.001 m   (camera axis vs target centre)
+     vertical offset     = -0.006 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case5: RESULT CASE 5: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.068 m, max |error| 0.328 m, final -0.027 m
+   Min hull-to-target clearance = 0.070 m (t=67.2, TARGET_REACHED)
+     true front gap      = 0.078 m   (estimated 0.060 m)
+     lateral offset      = +0.002 m   (camera axis vs target centre)
+     vertical offset     = -0.004 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case6: RESULT CASE 6: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean +0.090 m, max |error| 0.220 m, final -0.027 m
+   Min hull-to-target clearance = 0.253 m (t=36.4, TARGET_REACHED)
+     true front gap      = 0.260 m   (estimated 0.242 m)
+     lateral offset      = -0.005 m   (camera axis vs target centre)
+     vertical offset     = -0.005 m   (+ = target centre deeper)
+         1 [CALIB] heave (down): camera response N -> keeping +1
+== case7: RESULT CASE 7: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.038 m, max |error| 0.235 m, final -0.027 m
+         1 [CALIB] heave (down): camera response N -> keeping +1
+         1 [SAFETY] Target absent -> surfacing slowly.
+== nodetector: RESULT CASE 1: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean +0.048 m, max |error| 0.092 m, final -0.027 m
+         1 [CALIB] heave (down): camera response N -> keeping +1
+         1 [SAFETY] Perception fault: detector silent too long -> surfacing slowly.
+== novisiondepth: RESULT CASE 1: PASS
+   Depth used by the controller: CAMERA estimate; error vs truth mean -0.048 m, max |error| 0.176 m, final -0.004 m
+         1 [CALIB] heave (down): camera response 0 -> keeping +1
+         1 [SAFETY] No camera depth estimate (/vision/heave_flow silent): floating up -> surfacing slowly.

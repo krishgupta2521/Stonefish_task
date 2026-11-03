@@ -18,7 +18,7 @@ from std_msgs.msg import Float64MultiArray
 STATE_NAMES = [
     'SEARCH', 'YAW_ALIGN', 'YAW_SETTLE', 'VERTICAL_ALIGN', 'VERIFY_CENTER',
     'APPROACH', 'TARGET_LOST_HOLD', 'CALIBRATE', 'STOPPED',
-    'TARGET_REACHED', 'BACK_OFF', 'SURFACING', 'SURFACED', 'RETREAT']
+    'TARGET_REACHED', 'BACK_OFF', 'SURFACING', 'SURFACED', 'RETREAT', 'ROV_MANUAL']
 
 DEBUG_FIELDS = [
     'state', 't', 'x', 'y', 'depth', 'yaw', 'yaw_ref', 'yaw_rate',
@@ -29,6 +29,9 @@ DEBUG_FIELDS = [
     'range', 'front_gap', 'bbox_w', 'speed_ref', 'body_vx',
     'aborted', 'detector_alive', 'have_range',
     'truth_x', 'truth_y', 'truth_z', 'bbox_h', 'terminal']
+# Later fields of /usv/control_debug (index -> column): the depth the
+# controller used (camera estimate) next to the simulator truth in 'depth'.
+EXTRA_FIELDS = {54: 'surge_force', 56: 'heave_force', 57: 'yaw_torque', 58: 'depth_est', 59: 'vz_est', 61: 'depth_est_ok', 62: 'depth_from_camera', 71: 'yaw_est', 72: 'yaw_rate_est', 73: 'vx_est', 55: 'sway_force', 75: 'flow_yaw_rate', 76: 'sway_vel_est', 77: 'flow_vz', 78: 'surge_vel_model'}
 
 
 class Recorder(Node):
@@ -43,7 +46,7 @@ class Recorder(Node):
         self.pitch = 0.0
         self.file = open(os.path.join(out_dir, 'telemetry.csv'), 'w', newline='')
         self.writer = csv.writer(self.file)
-        self.writer.writerow(DEBUG_FIELDS + ['roll', 'pitch'])
+        self.writer.writerow(DEBUG_FIELDS + ['roll', 'pitch'] + list(EXTRA_FIELDS.values()))
         self.create_subscription(
             Float64MultiArray, '/usv/control_debug', self.on_debug, 50)
         self.create_subscription(Odometry, '/usv/odom', self.on_odom, 10)
@@ -62,7 +65,8 @@ class Recorder(Node):
     def on_debug(self, msg):
         data = list(msg.data)
         data += [float('nan')] * (len(DEBUG_FIELDS) - len(data))
-        self.writer.writerow(data[:len(DEBUG_FIELDS)] + [self.roll, self.pitch])
+        extra = [data[i] if i < len(data) else float('nan') for i in EXTRA_FIELDS]
+        self.writer.writerow(data[:len(DEBUG_FIELDS)] + [self.roll, self.pitch] + extra)
         state = int(data[0])
         if state != self.last_state:
             self.last_state = state

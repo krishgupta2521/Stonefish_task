@@ -1,0 +1,28 @@
+===== CASE 1  (/home/krish/Documents/Development/kyushu_project/camera_rov_project/stonefish/tests/results/real_size_v3_2026-10-23/nodetector) =====
+samples=14514  sim time 9.7 -> 38.7 s
+
+State timeline:
+  t=   9.68  TARGET_LOST_HOLD
+  t=  24.19  SURFACING
+  t=  33.86  SURFACED
+
+Final state: SURFACED   aborted=True
+Max |surge speed| = 0.003 m/s   max |roll| = 0.1 deg   max |pitch| = 1.5 deg
+Max |thrust cmd|: surge 0.00  yaw 0.01  heave 0.40
+
+Depth used by the controller: CAMERA estimate; error vs truth mean +0.048 m, max |error| 0.092 m, final -0.027 m
+
+Perception fault run: max horizontal drift = 0.01 m
+
+Checks:
+  [PASS] stays upright (|roll|,|pitch| < 10 deg)  0.1 / 1.5 deg
+  [PASS] speed never above 0.145 m/s  0.003 m/s
+  [PASS] ends SURFACED  SURFACED
+  [PASS] floaters break the surface at the end  0.006 m above
+  [PASS] stays at the surface (depth spread < 0.023 m)  0.21-0.22 m
+  [PASS] detector reported missing  
+  [PASS] did not search or approach blind  
+  [PASS] held position (drift < 0.07 m)  0.01 m
+  [PASS] aborted and surfaced  aborted=True
+
+RESULT CASE 1: PASS

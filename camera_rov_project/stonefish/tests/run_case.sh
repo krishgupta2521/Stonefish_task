@@ -9,6 +9,9 @@
 #   DETECTOR=yolo   use underwater_project/stonefish_yolo_detector.py (as
 #                   start_pipeline.sh does) instead of the HSV colour detector
 #   YOLO_IMGSZ=N    YOLO input size (default: the detector's own)
+#   NO_VISION_DEPTH=1  do not start visual_heave_estimator.py (tests losing the
+#                   camera depth estimate: the robot must float up safely)
+#   TASK2_DEPTH_SOURCE=sensor  controller uses the simulator's true depth (comparison)
 set -u
 
 CASE="${1:?usage: run_case.sh <case> [output_dir] [max_sim_seconds]}"
@@ -29,14 +32,29 @@ set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((40 + CASE))}"
 
 pids=()
-cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done; wait 2>/dev/null; }
+# Force-kill anything still alive after 2 s (the flow estimator once ignored
+# SIGTERM and hung the run).
+cleanup() {
+    for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
+    for _ in 1 2 3 4; do
+        alive=0; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive=1; done
+        [ "$alive" = 0 ] && break; sleep 0.5
+    done
+    for p in "${pids[@]}"; do kill -9 "$p" 2>/dev/null; done
+    wait 2>/dev/null
+}
 trap cleanup EXIT
 
 python3 "$HERE/recorder.py" "$OUT" > "$OUT/recorder.log" 2>&1 &
 pids+=($!)
 KYUSHU="$(cd "$ROOT/../.." && pwd)"
+# Depth from the camera: the controller has no depth sensor.
+if [ "${NO_VISION_DEPTH:-0}" != "1" ]; then
+    python3 "$KYUSHU/underwater_project/visual_heave_estimator.py" > "$OUT/visual_heave.log" 2>&1 &
+    pids+=($!)
+fi
 if [ "${NO_DETECTOR:-0}" != "1" ] && [ "${DETECTOR:-hsv}" = "yolo" ]; then
-    "$KYUSHU/yolo_env/bin/python" "$KYUSHU/underwater_project/stonefish_yolo_detector.py" \
+    "${YOLO_PY:-$KYUSHU/yolo_env/bin/python}" "$KYUSHU/underwater_project/stonefish_yolo_detector.py" \
         --mode stonefish --node-name stonefish_yolo_detector \
         --image-topic /Stonefish/camera/image_raw \
         --detection-topic /stonefish/target/detection \
@@ -65,4 +83,5 @@ trap - EXIT
 
 MODE=""
 [ "${NO_DETECTOR:-0}" = "1" ] && MODE="perception_fault"
+[ "${NO_VISION_DEPTH:-0}" = "1" ] && MODE="depth_fault"
 python3 "$HERE/analyze.py" "$OUT" "$CASE" $MODE | tee "$OUT/report.txt"

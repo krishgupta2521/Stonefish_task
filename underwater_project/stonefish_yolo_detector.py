@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -16,7 +18,15 @@ from ultralytics import YOLO
 import cv2
 
 
-MODEL_PATH = "/home/krish/Documents/Development/kyushu_project/runs/detect/training/stonefish_v1/weights/best.pt"
+# Stonefish buoy model: detects the BULB only, yolo26n at 960 px, trained on
+# the team's buoy in its real colours and size (real-size KYUBIC world) with
+# exact labels from the simulator (stonefish/tools/make_dataset.sh,
+# sim_buoy_dataset/). Earlier models (use --model): the bulb-only model for the
+# enlarged demo world runs/stonefish/buoy_yolo26n_300_epochs/weights/best.pt
+# (640 px), the full-stick model runs/detect/training/stonefish_v1/weights/best.pt.
+# Paths are relative to the repository root (this file is in underwater_project/).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(REPO_ROOT, "runs/stonefish/real_buoy_sim_960/weights/best.pt")
 
 
 class YOLODetector(Node):
@@ -30,7 +40,11 @@ class YOLODetector(Node):
         mode,
         bbox_topic,
         show_window,
-        imgsz
+        imgsz,
+        frame_info_topic="",
+        model_path=MODEL_PATH,
+        fallback_imgsz=0,
+        conf=0.30
     ):
 
         super().__init__(node_name)
@@ -41,6 +55,8 @@ class YOLODetector(Node):
         self.mode = mode
         self.show_window = show_window
         self.imgsz = imgsz
+        self.fallback_imgsz = fallback_imgsz
+        self.conf = conf
 
         self.bridge = CvBridge()
 
@@ -48,10 +64,16 @@ class YOLODetector(Node):
         # LOAD YOLO MODEL
         # =====================================================
 
-        self.model = YOLO(MODEL_PATH)
+        self.model = YOLO(model_path)
+        # GPU if there is one, else CPU (slower, but runs on any laptop)
+        try:
+            import torch
+            self.device = 0 if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            self.device = "cpu"
 
         self.get_logger().info("YOLO model loaded.")
-        self.get_logger().info(f"Model: {MODEL_PATH}")
+        self.get_logger().info(f"Model: {model_path}  classes {self.model.names}  imgsz {imgsz}")
 
         # =====================================================
         # IMAGE SUBSCRIBER
@@ -74,6 +96,14 @@ class YOLODetector(Node):
             10
         )
 
+        # Same detection in normalised image coordinates:
+        # x -1 (left) .. +1 (right), y -1 (bottom) .. +1 (top), z = confidence.
+        self.normalized_pub = self.create_publisher(
+            PointStamped,
+            "/stonefish/target/normalized",
+            10
+        )
+
         # =====================================================
         # BOUNDING BOX PUBLISHER
         # Task2Manager estimates the distance to the target from the
@@ -87,6 +117,21 @@ class YOLODetector(Node):
             self.bbox_pub = self.create_publisher(
                 Float64MultiArray,
                 bbox_topic,
+                10
+            )
+
+        # =====================================================
+        # PER-FRAME TIMING (system_logger.py)
+        # [image_stamp, detector_rx, detection_publish (epoch s),
+        #  detected, confidence, cx, cy, bbox_w, bbox_h, frame_w, frame_h]
+        # =====================================================
+
+        self.frame_info_pub = None
+
+        if frame_info_topic:
+            self.frame_info_pub = self.create_publisher(
+                Float64MultiArray,
+                frame_info_topic,
                 10
             )
 
@@ -139,6 +184,8 @@ class YOLODetector(Node):
 
     def image_callback(self, msg):
 
+        rx_time = time.time()
+
         # =====================================================
         # ROS IMAGE -> OPENCV
         # =====================================================
@@ -165,10 +212,23 @@ class YOLODetector(Node):
         results = self.model.predict(
             source=frame,
             imgsz=self.imgsz,
-            conf=0.5,
+            conf=self.conf,
             verbose=False,
-            device=0
+            device=self.device
         )
+
+        # Nothing found: retry the same frame at a larger input size. The
+        # bulb is small far away (640 px: 4-34 % at 7.5 m seen from behind;
+        # 960 px finds it), while 640 is better close up.
+        if (self.fallback_imgsz
+                and not any(r.boxes is not None and len(r.boxes) for r in results)):
+            results = self.model.predict(
+                source=frame,
+                imgsz=self.fallback_imgsz,
+                conf=self.conf,
+                verbose=False,
+                device=self.device
+            )
 
         # =====================================================
         # CAMERA INFORMATION
@@ -183,12 +243,13 @@ class YOLODetector(Node):
         # DRAW CAMERA CENTER
         # =====================================================
 
+        # Image centre cross (50 px across, easier to judge the error by eye)
         cv2.drawMarker(
             frame,
             (camera_cx, camera_cy),
             (255, 255, 255),
             cv2.MARKER_CROSS,
-            20,
+            50,
             2
         )
 
@@ -287,6 +348,24 @@ class YOLODetector(Node):
                 best_target_cy - camera_cy
             )
 
+            # Normalised like the real camera view: over the range the box can
+            # move, x -1 = touching the left edge .. +1 = right edge,
+            # y -1 = bottom .. +1 = top, (0, 0) = image centre.
+            range_x = max(width / 2.0 - (x2 - x1) / 2.0, 1.0)
+            range_y = max(height / 2.0 - (y2 - y1) / 2.0, 1.0)
+            norm_x = max(-1.0, min(1.0, (best_target_cx - width / 2.0) / range_x))
+            norm_y = max(-1.0, min(1.0, -(best_target_cy - height / 2.0) / range_y))
+            # (no "-0.00" in the overlay)
+            norm_x = round(norm_x, 3) + 0.0
+            norm_y = round(norm_y, 3) + 0.0
+
+            norm_msg = PointStamped()
+            norm_msg.header = msg.header
+            norm_msg.point.x = float(norm_x)
+            norm_msg.point.y = float(norm_y)
+            norm_msg.point.z = float(best_confidence)
+            self.normalized_pub.publish(norm_msg)
+
             # Bounding box
             cv2.rectangle(
                 frame,
@@ -340,7 +419,7 @@ class YOLODetector(Node):
             # Center
             cv2.putText(
                 frame,
-                f"Center: ({best_target_cx}, {best_target_cy})",
+                f"Center: ({norm_x:+.2f}, {norm_y:+.2f})",
                 (
                     x1,
                     max(y1 - 15, 20)
@@ -354,7 +433,7 @@ class YOLODetector(Node):
             # Error
             cv2.putText(
                 frame,
-                f"Error: X={error_x} Y={error_y}",
+                f"Error: X={norm_x:+.2f} Y={norm_y:+.2f}",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -460,6 +539,33 @@ class YOLODetector(Node):
             )
 
         # =====================================================
+        # PER-FRAME TIMING
+        # =====================================================
+
+        if self.frame_info_pub is not None:
+
+            bw = bh = 0.0
+            if target_found:
+                bw = float(best_box[2] - best_box[0])
+                bh = float(best_box[3] - best_box[1])
+
+            info = Float64MultiArray()
+            info.data = [
+                msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
+                rx_time,
+                time.time(),
+                1.0 if target_found else 0.0,
+                float(best_confidence),
+                float(best_target_cx) if target_found else 0.0,
+                float(best_target_cy) if target_found else 0.0,
+                bw,
+                bh,
+                float(width),
+                float(height)
+            ]
+            self.frame_info_pub.publish(info)
+
+        # =====================================================
         # PUBLISH ANNOTATED IMAGE
         # =====================================================
 
@@ -541,8 +647,38 @@ def main(args=None):
         "--imgsz",
         type=int,
         default=960,
-        help="YOLO input size. 960 suits the ZED Mini's 90 deg view: the "
-             "target is small and 512 misses most frames beyond ~5 m"
+        help="YOLO input size. The default model was trained at 960 (the real "
+             "bulb is ~13 px wide at the far start). Use 640 with the older "
+             "enlarged-world model."
+    )
+
+    parser.add_argument(
+        "--fallback-imgsz",
+        type=int,
+        default=0,
+        help="if nothing is detected at --imgsz, retry at this size (0 = off; "
+             "960 suited the older 640 px model)"
+    )
+
+    parser.add_argument(
+        "--conf",
+        type=float,
+        default=0.30,
+        help="minimum confidence. The default model: 100%% of held-out buoy "
+             "frames and no false alarms at 0.30 (it scores small far bulbs "
+             "~0.45); use 0.5 with the older models"
+    )
+
+    parser.add_argument(
+        "--model",
+        default=MODEL_PATH,
+        help="YOLO weights (default: bulb-only Stonefish buoy model)"
+    )
+
+    parser.add_argument(
+        "--frame-info-topic",
+        default="/stonefish/frame_info",
+        help="per-frame timing for system_logger.py ('' to disable)"
     )
 
     parser.add_argument(
@@ -563,7 +699,11 @@ def main(args=None):
         mode=parsed_args.mode,
         bbox_topic=parsed_args.bbox_topic,
         show_window=not parsed_args.no_window,
-        imgsz=parsed_args.imgsz
+        imgsz=parsed_args.imgsz,
+        frame_info_topic=parsed_args.frame_info_topic,
+        model_path=parsed_args.model,
+        fallback_imgsz=parsed_args.fallback_imgsz,
+        conf=parsed_args.conf
     )
 
     try:

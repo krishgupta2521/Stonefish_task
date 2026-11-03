@@ -1,0 +1,24 @@
+# Keep the build context small: only the code, models and trained weights.
+.git
+**/__pycache__
+yolo_env/
+.venv_yolo/
+beg_task/
+logs/
+kyubic_output/
+dataset/
+sim_buoy_dataset/
+real_camera_dataset/
+underwater_project/raw_data/
+underwater_project/train/
+underwater_project/valid/
+underwater_project/test/
+camera_rov_project/stonefish/build/
+camera_rov_project/stonefish/tests/results/
+camera_rov_project/ros2_ws/build/
+camera_rov_project/ros2_ws/install/
+camera_rov_project/ros2_ws/log/
+*.step
+*.pptx
+runs/**
+!runs/**/weights/best.pt

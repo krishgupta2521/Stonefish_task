@@ -11,8 +11,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # STONEFISH
 # =========================================================
 
+# Stonefish source tree, built in its build/ folder with -DBUILD_TESTS=ON
+# (that gives libStonefish_test.so). On another machine pass its location:
+#   cmake -DSTONEFISH_DIR=/path/to/stonefish ..
 set(STONEFISH_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../beg_task/stonefish_learning/stonefish")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../beg_task/stonefish_learning/stonefish"
+    CACHE PATH "Stonefish source tree (built in its build/ folder)")
 
 set(STONEFISH_BUILD_DIR
     "${STONEFISH_DIR}/build")
@@ -113,6 +117,8 @@ target_compile_definitions(
     SHADER_DIR_PATH="${STONEFISH_DIR}/Library/shaders/"
 
     KYUBIC_MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models/kyubic/"
+
+    BUOY_MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/models/buoy/"
 )
 
 

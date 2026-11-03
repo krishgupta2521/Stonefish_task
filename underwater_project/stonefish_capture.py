@@ -17,8 +17,8 @@ class StonefishImageCollector(Node):
         self.bridge = CvBridge()
 
         self.output_dir = (
-            '/home/krish/Documents/Development/kyushu_project/'
-            'underwater_project/raw_data/stonefish'
+            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'raw_data', 'stonefish')
         )
 
         os.makedirs(self.output_dir, exist_ok=True)

@@ -13,7 +13,7 @@ import numpy as np
 STATE_NAMES = [
     'SEARCH', 'YAW_ALIGN', 'YAW_SETTLE', 'VERTICAL_ALIGN', 'VERIFY_CENTER',
     'APPROACH', 'TARGET_LOST_HOLD', 'CALIBRATE', 'STOPPED',
-    'TARGET_REACHED', 'BACK_OFF', 'SURFACING', 'SURFACED', 'RETREAT']
+    'TARGET_REACHED', 'BACK_OFF', 'SURFACING', 'SURFACED', 'RETREAT', 'ROV_MANUAL']
 REACHED, SURFACING, SURFACED, SEARCH, APPROACH = 9, 11, 12, 0, 5
 
 # ---- Simulation geometry: KYUBIC V2 (src/kyubic_model.hpp, models/kyubic/) ----
@@ -32,9 +32,20 @@ def _vec(name):
 CAMERA_X, _, CAMERA_Z = _vec('CAMERA_POS')                 # ZED Mini, body frame (NED)
 FRONT_X = float(_re.search(r'FRONT_X = ([0-9.]+)', _HEADER).group(1))  # recovery hooks
 SCALE = float(_re.search(r'SCALE = ([0-9.]+)', _HEADER).group(1))   # robot size x real KYUBIC
-TARGET_RADIUS = 0.235                     # yellow_sensor_model.obj * 0.5 (larger semi-axis)
-TARGET_TOP, TARGET_BOTTOM = -0.70, 1.01   # depth extent relative to the target origin
-TARGET_CENTRE_DZ = 0.5 * (TARGET_TOP + TARGET_BOTTOM)
+# World scale (see Sim:: in Task2Manager.cpp): tuned on KYUBIC x4.275 in a
+# 4.275x larger world; lengths scale by L, speeds by sqrt(L) (Froude).
+L = SCALE / 4.275
+V = math.sqrt(L)
+REAL_BUOY = SCALE < 1.5
+# The team's buoy (models/yellow_sensor_model.obj), scaled uniformly: real
+# bulb 16 cm tall (0.16 / 1.54), or the 1.71 m demo buoy (x0.5). Clearance is
+# to a vertical cylinder of the bulb's larger semi-axis over the whole height.
+BUOY_SCALE = 0.16 / 1.54 if REAL_BUOY else 0.5
+TARGET_RADIUS = 0.47 * BUOY_SCALE
+TARGET_TOP, TARGET_BOTTOM = -1.40 * BUOY_SCALE, 2.02 * BUOY_SCALE   # relative to the origin
+# The robot centres on the BULB (the YOLO model detects the bulb only): its
+# geometric centre is above the target origin.
+TARGET_CENTRE_DZ = -0.18 * BUOY_SCALE
 TOP_SENSOR_HEIGHT = 0.223 * SCALE         # top of the floaters above the hull axis
 
 
@@ -77,6 +88,18 @@ def clearance(x, y, depth, yaw, tx, ty, tz):
     return float(d.min())
 
 
+def report_depth_estimate(d):
+    """How far the controller's depth (camera estimate) was from the truth."""
+    if 'depth_est' not in d or not np.isfinite(d['depth_est']).any():
+        return
+    ok = np.isfinite(d['depth_est'])
+    camera = 'depth_from_camera' in d and np.nanmax(d['depth_from_camera']) > 0.5
+    err = d['depth_est'][ok] - d['depth'][ok]
+    print(f"\nDepth used by the controller: {'CAMERA estimate' if camera else 'simulator truth'}"
+          f"; error vs truth mean {err.mean():+.3f} m, max |error| {np.abs(err).max():.3f} m, "
+          f"final {err[-1]:+.3f} m")
+
+
 def load(run_dir):
     with open(f'{run_dir}/telemetry.csv') as f:
         rows = list(csv.DictReader(f))
@@ -86,6 +109,9 @@ def load(run_dir):
 def main():
     run_dir, case = sys.argv[1], int(sys.argv[2])
     perception_fault = len(sys.argv) > 3 and sys.argv[3] == 'perception_fault'
+    # depth_fault: no camera depth estimate at all -> abort, vertical thrusters
+    # off, KYUBIC floats up on its own buoyancy (no "SURFACED" can be confirmed).
+    depth_fault = len(sys.argv) > 3 and sys.argv[3] == 'depth_fault'
     d = load(run_dir)
     t = d['t']
     state = d['state'].astype(int)
@@ -115,24 +141,34 @@ def main():
           f'max |roll| = {roll.max():.1f} deg   max |pitch| = {pitch.max():.1f} deg')
     print(f'Max |thrust cmd|: surge {np.abs(d["surge_cmd"]).max():.2f}  '
           f'yaw {np.abs(d["yaw_cmd"]).max():.2f}  heave {np.abs(d["heave_cmd"]).max():.2f}')
+    report_depth_estimate(d)
 
     check('stays upright (|roll|,|pitch| < 10 deg)', roll.max() < 10 and pitch.max() < 10,
           f'{roll.max():.1f} / {pitch.max():.1f} deg')
-    check('speed never above 0.30 m/s', speed.max() <= 0.30, f'{speed.max():.3f} m/s')
-    check('ends SURFACED', final == SURFACED, STATE_NAMES[final])
+    check(f'speed never above {0.30 * V:.3f} m/s', speed.max() <= 0.30 * V, f'{speed.max():.3f} m/s')
+    if not depth_fault:
+        check('ends SURFACED', final == SURFACED, STATE_NAMES[final])
     top = d['depth'][-1] - TOP_SENSOR_HEIGHT
-    check('floaters break the surface at the end', top < -0.005, f'{-top:.3f} m above')
+    check('floaters break the surface at the end', top < -0.005 * L, f'{-top:.3f} m above')
     if (state == SURFACED).any():
         sd = d['depth'][state == SURFACED]
-        check('stays at the surface (depth spread < 0.10 m)', np.ptp(sd) < 0.10,
+        check(f'stays at the surface (depth spread < {0.10 * L:.3f} m)', np.ptp(sd) < 0.10 * L,
               f'{sd.min():.2f}-{sd.max():.2f} m')
 
-    if perception_fault:
+    if depth_fault:
+        moved = np.hypot(d['x'] - d['x'][0], d['y'] - d['y'][0]).max()
+        print(f'\nDepth-estimate fault run: max horizontal drift = {moved:.2f} m')
+        ab = d['aborted'] > 0.5
+        check('vertical thrust only lifts after the abort (no depth loop)',
+              ab.any() and d['heave_cmd'][ab].max() <= 1e-6, '')
+        check('did not approach without a depth estimate', APPROACH not in seen, '')
+        check('aborted', aborted, f'aborted={aborted}')
+    elif perception_fault:
         moved = np.hypot(d['x'] - d['x'][0], d['y'] - d['y'][0]).max()
         print(f'\nPerception fault run: max horizontal drift = {moved:.2f} m')
         check('detector reported missing', (d['detector_alive'] < 0.5).all(), '')
         check('did not search or approach blind', not ({SEARCH, APPROACH} & seen), '')
-        check('held position (drift < 0.3 m)', moved < 0.3, f'{moved:.2f} m')
+        check(f'held position (drift < {0.3 * L:.2f} m)', moved < 0.3 * L, f'{moved:.2f} m')
         check('aborted and surfaced', aborted, f'aborted={aborted}')
     elif has_target:
         # Ground-truth geometry, subsampled to ~20 Hz
@@ -143,12 +179,12 @@ def main():
         imin = idx[np.argmin(clr)]
         print(f'\nMin hull-to-target clearance = {clr.min():.3f} m '
               f'(t={t[imin]:.1f}, {STATE_NAMES[state[imin]]})')
-        near = clr < 1.0
+        near = clr < 1.0 * L
         near_speed = speed[idx][near].max() if near.any() else 0.0
-        print(f'Max speed while within 1 m of the target = {near_speed:.3f} m/s')
-        check('NO contact with target (clearance > 0.05 m)', clr.min() > 0.05,
+        print(f'Max speed while within {1.0 * L:.2f} m of the target = {near_speed:.3f} m/s')
+        check(f'NO contact with target (clearance > {0.05 * L:.3f} m)', clr.min() > 0.05 * L,
               f'{clr.min():.3f} m')
-        check('slow near target (< 0.10 m/s within 1 m)', near_speed < 0.10,
+        check(f'slow near target (< {0.10 * V:.3f} m/s within {1.0 * L:.2f} m)', near_speed < 0.10 * V,
               f'{near_speed:.3f} m/s')
 
         check('reached the target', REACHED in seen, 'TARGET_REACHED seen' if REACHED in seen else 'never')
@@ -179,15 +215,14 @@ def main():
             print(f'  speed               = {d["body_vx"][i]:+.3f} m/s')
             if case == 6:
                 # Moving target: stops where the camera still sees it (1.0 m).
-                check('stops at moving-target standoff (true gap 0.6-1.4 m)',
-                      0.6 <= true_gap <= 1.4, f'{true_gap:.3f} m')
+                check(f'stops at moving-target standoff (true gap {0.6 * L:.2f}-{1.4 * L:.2f} m)',
+                      0.6 * L <= true_gap <= 1.4 * L, f'{true_gap:.3f} m')
             else:
-                check('stops close to target (true gap 0.05-0.40 m)', 0.05 <= true_gap <= 0.40,
-                      f'{true_gap:.3f} m')
-            check('centred horizontally (|lateral| < 0.10 m)', abs(lateral) < 0.10,
+                check(f'stops close to target (true gap {0.05 * L:.3f}-{0.40 * L:.3f} m)',
+                      0.05 * L <= true_gap <= 0.40 * L, f'{true_gap:.3f} m')
+            check(f'centred horizontally (|lateral| < {0.10 * L:.3f} m)', abs(lateral) < 0.10 * L,
                   f'{lateral:+.3f} m')
-            # The detector does not segment the target's dark top cap, so the
-            # visible centre is ~0.1 m below the geometric one (target is 1.71 m tall).
+            # Vertical offset is measured to the bulb's centre (TARGET_CENTRE_DZ).
             if case == 6:
                 # Moving target (+-0.28 m in depth): once it fills the view
                 # there is no vertical information, so require the camera
@@ -196,7 +231,7 @@ def main():
                 check(f'camera axis on the moving target body (|vertical| < {half_height:.2f} m)',
                       abs(vertical) < half_height, f'{vertical:+.3f} m')
             else:
-                check('centred vertically (|vertical| < 0.20 m)', abs(vertical) < 0.20,
+                check(f'centred vertically (|vertical| < {0.20 * L:.3f} m)', abs(vertical) < 0.20 * L,
                       f'{vertical:+.3f} m')
 
         # Range-estimate quality during the approach

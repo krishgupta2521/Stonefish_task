@@ -7,7 +7,8 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
 
-SAVE_DIR = "/home/krish/Documents/Development/kyushu_project/real_camera_dataset"
+SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "real_camera_dataset")
 
 
 class RealCameraCapture(Node):

@@ -1,11 +1,39 @@
+# Build output and Python caches
 build/
 install/
 log/
-logs/
 __pycache__/
 *.pyc
+camera_rov_project/stonefish/controller_test
+
+# Python environments (recreate them from requirements.txt)
 yolo_env/
+.venv_yolo/
+.venv/
 cadenv/
+
+# The KYUBIC STEP CAD file is 177 MB, over GitHub's 100 MB file limit
 *.step
-tests/results/**/*.png
-tests/results/**/telemetry.csv
+
+# Run output
+logs/
+kyubic_output/
+camera_rov_project/stonefish/tests/results/
+
+# Datasets and training runs are published as a GitHub Release (see README).
+# Only the trained weights the detectors load are committed (added with -f).
+dataset/
+sim_buoy_dataset/
+real_camera_dataset/
+underwater_project/raw_data/
+underwater_project/train/
+underwater_project/valid/
+underwater_project/test/
+runs/
+/yolo26n.pt
+weights/
+
+# Earlier learning exercises and local tooling, kept on the author's machine
+beg_task/
+.claude/
+annotation_check_report.txt
